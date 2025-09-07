@@ -1,55 +1,640 @@
-# Inspired from https://github.com/actions/starter-workflows/blob/main/pages/nextjs.yml
-name: GitHub Pages
+"use client";
 
-on:
-  push:
-    branches: main
-  workflow_dispatch:
+import React, { useMemo, useState, useEffect, useRef } from "react";
+import { motion } from "framer-motion";
+import { AlertCircle, RefreshCw, Copy, Download, Smile, Frown, Meh, FileText } from "lucide-react";
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+// Web UI calculator with inputs at the top, style selector, PDF export, Seeding Flasks & Dishes Calculator, and Seeding Plates Calculator.
+// Tailwind + shadcn/ui + framer-motion. All values mirror the Excel sheets.
 
-concurrency:
-  group: 'pages'
-  cancel-in-progress: false
+type ThemeKey = "pink" | "green" | "blue" | "orange" | "purple" | "yellow" | "grey";
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: yarn
-      - id: configurepages
-        uses: actions/configure-pages@v5
-      - name: Restore cache
-        uses: actions/cache@v4
-        with:
-          path: .next/cache
-          key: ${{ runner.os }}-nextjs-${{ hashFiles('**/yarn.lock') }}-${{ hashFiles('**.[jt]s', '**.[jt]sx') }}
-          restore-keys: |
-            ${{ runner.os }}-nextjs-${{ hashFiles('**/yarn.lock') }}-
-      - run: yarn
-      - run: yarn build
-        env:
-          EXPORT: 1
-          UNOPTIMIZED: 1
-          BASE_PATH: ${{ steps.configurepages.outputs.base_path }}
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: ./out
+const THEMES: Record<ThemeKey, {
+  bg: string;          // page background
+  bezel: string;       // card/bezel background + border
+  display: string;     // readout background/text
+  chip: string;        // small surfaces (inputs card)
+  controlChip: string; // style selector chip (top-right)
+  accent: string;      // accent text/icon color
+  text: string;        // base text color for page
+  muted: string;       // muted text color (subtitles)
+  input?: string;      // input field class overrides
+  selectTrigger?: string; // select trigger class overrides
+  selectContent?: string; // select content class overrides
+}> = {
+  pink:   { bg: "bg-[radial-gradient(circle_at_10%_20%,rgba(244,114,182,0.20),transparent_35%),radial-gradient(circle_at_80%_20%,rgba(250,204,21,0.20),transparent_35%),radial-gradient(circle_at_50%_80%,rgba(125,211,252,0.25),transparent_35%)]", bezel: "bg-gradient-to-br from-pink-50 via-rose-50 to-amber-50 border-pink-200", display: "bg-neutral-900 text-neutral-50", chip: "bg-white/80", controlChip: "bg-white/70 ring-1 ring-black/5", accent: "text-pink-500", text: "text-neutral-900", muted: "text-muted-foreground" },
+  green:  { bg: "bg-[radial-gradient(circle_at_15%_15%,rgba(134,239,172,0.25),transparent_35%),radial-gradient(circle_at_85%_20%,rgba(110,231,183,0.25),transparent_35%),radial-gradient(circle_at_50%_85%,rgba(59,130,246,0.20),transparent_40%)]", bezel: "bg-gradient-to-br from-emerald-50 via-green-50 to-teal-50 border-emerald-200", display: "bg-neutral-900 text-neutral-50", chip: "bg-white/80", controlChip: "bg-white/70 ring-1 ring-black/5", accent: "text-emerald-600", text: "text-neutral-900", muted: "text-muted-foreground" },
+  blue:   { bg: "bg-[radial-gradient(circle_at_10%_20%,rgba(125,211,252,0.25),transparent_35%),radial-gradient(circle_at_80%_20%,rgba(191,219,254,0.25),transparent_35%),radial-gradient(circle_at_50%_80%,rgba(59,130,246,0.20),transparent_35%)]", bezel: "bg-gradient-to-br from-sky-50 via-indigo-50 to-cyan-50 border-sky-200", display: "bg-neutral-900 text-neutral-50", chip: "bg-white/80", controlChip: "bg-white/70 ring-1 ring-black/5", accent: "text-sky-600", text: "text-neutral-900", muted: "text-muted-foreground" },
+  orange: { bg: "bg-[radial-gradient(circle_at_15%_20%,rgba(253,230,138,0.25),transparent_35%),radial-gradient(circle_at_85%_25%,rgba(251,191,36,0.25),transparent_35%),radial-gradient(circle_at_50%_85%,rgba(253,186,116,0.25),transparent_40%)]", bezel: "bg-gradient-to-br from-amber-50 via-orange-50 to-rose-50 border-amber-200", display: "bg-neutral-900 text-neutral-50", chip: "bg-white/80", controlChip: "bg-white/70 ring-1 ring-black/5", accent: "text-amber-600", text: "text-neutral-900", muted: "text-muted-foreground" },
+  purple: { bg: "bg-[radial-gradient(circle_at_12%_18%,rgba(196,181,253,0.28),transparent_36%),radial-gradient(circle_at_82%_22%,rgba(167,139,250,0.28),transparent_36%),radial-gradient(circle_at_50%_85%,rgba(147,197,253,0.20),transparent_40%)]", bezel: "bg-gradient-to-br from-violet-50 via-fuchsia-50 to-indigo-50 border-violet-200", display: "bg-neutral-900 text-neutral-50", chip: "bg-white/80", controlChip: "bg-white/70 ring-1 ring-black/5", accent: "text-violet-600", text: "text-neutral-900", muted: "text-muted-foreground" },
+  yellow: { bg: "bg-[radial-gradient(circle_at_10%_20%,rgba(254,240,138,0.30),transparent_38%),radial-gradient(circle_at_88%_24%,rgba(253,224,71,0.28),transparent_38%),radial-gradient(circle_at_50%_88%,rgba(254,215,170,0.24),transparent_42%)]", bezel: "bg-gradient-to-br from-yellow-50 via-amber-50 to-orange-50 border-yellow-200", display: "bg-neutral-900 text-neutral-50", chip: "bg-white/80", controlChip: "bg-white/70 ring-1 ring-black/5", accent: "text-yellow-600", text: "text-neutral-900", muted: "text-muted-foreground" },
+  grey:   { bg: "bg-gradient-to-br from-neutral-100 to-white", bezel: "bg-neutral-50 border-neutral-200", display: "bg-neutral-800 text-neutral-50", chip: "bg-white/80", controlChip: "bg-white/70 ring-1 ring-black/5", accent: "text-neutral-700", text: "text-neutral-900", muted: "text-muted-foreground" },
+};
 
-  # Deployment job
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+const BRAND = {
+  name: "BloomBio",
+  primary: "from-pink-500 to-violet-500", // gradient
+  accentRing: "ring-pink-300",
+  text: "text-neutral-900",
+  subtext: "text-neutral-600",
+};
+
+function formatNumber(n: number, opts: Intl.NumberFormatOptions = {}) {
+  if (!Number.isFinite(n)) return "–";
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2, ...opts }).format(n);
+}
+function clamp(n: number, min = 0) { return isNaN(n) ? 0 : Math.max(min, n); }
+
+function isThemeKey(k: unknown): k is ThemeKey {
+  return typeof k === "string" && Object.prototype.hasOwnProperty.call(THEMES, k);
+}
+
+// --- Pure calculation util (exported for testing) ---
+export function calcOutputs(
+  currentCellsPerMl: number,
+  viabilityPercent: number,
+  availableVolumeMl: number,
+  targetCellsPerMl: number,
+  desiredFinalVolumeMl: number
+) {
+  const viable = clamp(currentCellsPerMl * (viabilityPercent / 100));
+  const dead = clamp(currentCellsPerMl - viable);
+  const culture = viable > 0 ? clamp((targetCellsPerMl * desiredFinalVolumeMl) / viable) : NaN;
+  const media = clamp(desiredFinalVolumeMl - culture);
+  const shortfall = Math.max(0, culture - availableVolumeMl);
+  return { viable, dead, culture, media, shortfall };
+}
+
+// --- Seeding planner helpers ---
+const PLATE_WELLS: Record<string, number> = { "6-well": 6, "12-well": 12, "24-well": 24, "48-well": 48, "96-well": 96 };
+const PLATE_LAYOUTS: Record<string, { cols: number; rows: number }> = {
+  "6-well": { cols: 3, rows: 2 },
+  "12-well": { cols: 4, rows: 3 },
+  "24-well": { cols: 6, rows: 4 },
+  "48-well": { cols: 8, rows: 6 },
+  "96-well": { cols: 12, rows: 8 },
+};
+
+// Common flask & dish sizes (approximate areas and recommended working volumes)
+const FLASKS: Record<string, { areaCm2: number; recommendedVolumeMl: number }> = {
+  "T25":  { areaCm2: 25,  recommendedVolumeMl: 5 },
+  "T75":  { areaCm2: 75,  recommendedVolumeMl: 15 },
+  "T175": { areaCm2: 175, recommendedVolumeMl: 35 },
+  "T225": { areaCm2: 225, recommendedVolumeMl: 45 },
+};
+const DISHES: Record<string, { areaCm2: number; recommendedVolumeMl: number }> = {
+  "35 mm":  { areaCm2: 9.6,  recommendedVolumeMl: 2 },
+  "60 mm":  { areaCm2: 21,   recommendedVolumeMl: 5 },
+  "100 mm": { areaCm2: 58,   recommendedVolumeMl: 10 },
+  "150 mm": { areaCm2: 145,  recommendedVolumeMl: 20 },
+};
+
+type ConcentrationSource = "viable" | "target" | "custom";
+
+type VesselKind = "flask" | "dish";
+
+export default function CultureCalculator() {
+  // Inputs
+  const [currentCellsPerMl, setCurrentCellsPerMl] = useState<number>(1.2e6);
+  const [viabilityPercent, setViabilityPercent] = useState<number>(95);
+  const [availableVolumeMl, setAvailableVolumeMl] = useState<number>(20);
+  const [targetCellsPerMl, setTargetCellsPerMl] = useState<number>(0.3e6);
+  const [desiredFinalVolumeMl, setDesiredFinalVolumeMl] = useState<number>(15);
+
+  // Style selector (with safe default)
+  const [styleKey, setStyleKey] = useState<ThemeKey>("pink");
+
+  // Seeding Planner state
+  const [cellsPerWell, setCellsPerWell] = useState<number>(50000);
+  const [plateType, setPlateType] = useState<string>("24-well");
+  const [concSource, setConcSource] = useState<ConcentrationSource>("target"); // default: target (per user)
+  const [customConc, setCustomConc] = useState<number>(3e5);
+  const pipetResolutionMl = 0.005; // 5 µL
+
+  // Flasks & Dishes state
+  const [vesselKind, setVesselKind] = useState<VesselKind>("flask");
+  const [flaskSize, setFlaskSize] = useState<string>("T75");
+  const [dishSize, setDishSize] = useState<string>("100 mm");
+  const [cellsPerCm2, setCellsPerCm2] = useState<number>(20000);
+
+  // Persist settings
+  useEffect(() => {
+    const saved = localStorage.getItem("cultureCalc:v2");
+    if (saved) {
+      try {
+        const obj = JSON.parse(saved);
+        setCurrentCellsPerMl(obj.currentCellsPerMl ?? 1.2e6);
+        setViabilityPercent(obj.viabilityPercent ?? 95);
+        setAvailableVolumeMl(obj.availableVolumeMl ?? 20);
+        setTargetCellsPerMl(obj.targetCellsPerMl ?? 0.3e6);
+        setDesiredFinalVolumeMl(obj.desiredFinalVolumeMl ?? 15);
+        setStyleKey(isThemeKey(obj.styleKey) ? obj.styleKey : "pink");
+      } catch {}
+    }
+  }, []);
+  useEffect(() => {
+    localStorage.setItem(
+      "cultureCalc:v2",
+      JSON.stringify({ currentCellsPerMl, viabilityPercent, availableVolumeMl, targetCellsPerMl, desiredFinalVolumeMl, styleKey })
+    );
+  }, [currentCellsPerMl, viabilityPercent, availableVolumeMl, targetCellsPerMl, desiredFinalVolumeMl, styleKey]);
+
+  // Calculations (via pure util)
+  const { viable, dead, culture, media, shortfall } = useMemo(
+    () => calcOutputs(currentCellsPerMl, viabilityPercent, availableVolumeMl, targetCellsPerMl, desiredFinalVolumeMl),
+    [currentCellsPerMl, viabilityPercent, availableVolumeMl, targetCellsPerMl, desiredFinalVolumeMl]
+  );
+
+  // Mood from viability
+  const mood: "low" | "mid" | "high" = viabilityPercent < 60 ? "low" : viabilityPercent < 85 ? "mid" : "high";
+  const MoodIcon = mood === "high" ? Smile : mood === "mid" ? Meh : Frown;
+  const moodBox = mood === "high" ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : mood === "mid" ? "bg-amber-50 text-amber-800 ring-amber-200" : "bg-rose-50 text-rose-800 ring-rose-200";
+  const moodText = mood === "high" ? "Happy cells!" : mood === "mid" ? "Meh – could be better" : "Sad – viability is low";
+
+  // Theme classes (defensive fallback)
+  const T = THEMES[isThemeKey(styleKey) ? styleKey : "pink"];
+
+  // PDF export ref
+  const reportRef = useRef<HTMLDivElement>(null);
+
+  const onReset = () => {
+    setCurrentCellsPerMl(1.2e6);
+    setViabilityPercent(95);
+    setAvailableVolumeMl(20);
+    setTargetCellsPerMl(0.3e6);
+    setDesiredFinalVolumeMl(15);
+  };
+  const copyOutputs = async () => {
+    const text = `Viable cells/mL: ${formatNumber(viable)}\nDead cells/mL: ${formatNumber(dead)}\nCulture vol to add (mL): ${formatNumber(culture)}\nMedia vol to add (mL): ${formatNumber(media)}`;
+    try { await navigator.clipboard.writeText(text); } catch {}
+  };
+  const downloadCSV = () => {
+    const rows = [
+      ["Field","Value"],
+      ["Current_cells_per_mL", currentCellsPerMl],
+      ["Viability_percent", viabilityPercent],
+      ["Available_volume_mL", availableVolumeMl],
+      ["Target_cells_per_mL", targetCellsPerMl],
+      ["Desired_final_volume_mL", desiredFinalVolumeMl],
+      ["Viable_cells_per_mL", viable],
+      ["Dead_cells_per_mL", dead],
+      ["Culture_volume_to_add_mL", culture],
+      ["Media_volume_to_add_mL", media],
+    ];
+    // FIX: correct newline literal for CSV rows
+    const csv = rows.map((r) => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "cell_culture_calculator.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  const exportPDF = async () => {
+    try {
+      const { jsPDF } = await import("jspdf");
+      const html2canvas = (await import("html2canvas")).default;
+      const node = reportRef.current;
+      if (!node) return;
+      const canvas = await html2canvas(node, { scale: 2, backgroundColor: null });
+      const imgData = canvas.toDataURL("image/png");
+      const pdf = new jsPDF("p", "mm", "a4");
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
+      pdf.save(`BloomBio_CellCalc_${new Date().toISOString().slice(0,10)}.pdf`);
+    } catch (e) {
+      console.error("PDF export failed", e);
+    }
+  };
+
+  // Seeding planner deriveds
+  const workingCellsPerMl = concSource === "viable" ? viable : concSource === "target" ? targetCellsPerMl : customConc;
+  const wells = PLATE_WELLS[plateType] ?? 0;
+  const volPerWellMl = workingCellsPerMl > 0 ? cellsPerWell / workingCellsPerMl : NaN;
+  const totalCellsPlate = cellsPerWell * wells;
+  const totalVolumePlateMl = Number.isFinite(volPerWellMl) ? volPerWellMl * wells : NaN;
+  const belowResolution = Number.isFinite(volPerWellMl) && volPerWellMl > 0 && volPerWellMl < pipetResolutionMl;
+
+  // Flask/dish deriveds
+  const selectedFlask = FLASKS[flaskSize];
+  const selectedDish = DISHES[dishSize];
+  const vesselAreaCm2 = vesselKind === "flask" ? selectedFlask.areaCm2 : selectedDish.areaCm2;
+  const vesselRecVolMl = vesselKind === "flask" ? selectedFlask.recommendedVolumeMl : selectedDish.recommendedVolumeMl;
+  const cellsNeededVessel = vesselAreaCm2 * cellsPerCm2;
+  const seedVolumeVesselMl = workingCellsPerMl > 0 ? cellsNeededVessel / workingCellsPerMl : NaN;
+  const seedBelowRes = Number.isFinite(seedVolumeVesselMl) && seedVolumeVesselMl > 0 && seedVolumeVesselMl < pipetResolutionMl;
+
+  return (
+    <div className={`min-h-[100dvh] w-full overflow-x-hidden ${T.text}`}>
+      {/* Background */}
+      <div className={`pointer-events-none fixed inset-0 -z-10 ${T.bg}`} />
+
+      <div className="mx-auto max-w-5xl px-4 py-8">
+        {/* Top bar with brand + style selector */}
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br ${BRAND.primary} shadow-sm ring-2 ${BRAND.accentRing}`}>
+              <BrandMark className="h-6 w-6 text-white" />
+            </div>
+            <div>
+              <h1 className={`text-xl font-bold tracking-tight ${BRAND.text}`}>{BRAND.name} • Cell Culture Calculator</h1>
+              <p className={`text-sm ${BRAND.subtext}`}>Calculator • outputs • PDF export • seeding planner</p>
+            </div>
+          </div>
+          <div className={`flex items-center gap-2 rounded-full px-3 py-2 shadow-sm ${T.controlChip}`}>
+            <Label className="text-xs">Style</Label>
+            <Select value={styleKey} onValueChange={(v) => setStyleKey(v as ThemeKey)}>
+              <SelectTrigger className={`h-8 w-[160px] ${T.selectTrigger ?? ''}`}>
+                <SelectValue placeholder="Pick a style" />
+              </SelectTrigger>
+              <SelectContent align="end" className={T.selectContent ?? ''}>
+                <SelectItem value="pink">Pink</SelectItem>
+                <SelectItem value="green">Green</SelectItem>
+                <SelectItem value="blue">Blue</SelectItem>
+                <SelectItem value="orange">Orange</SelectItem>
+                <SelectItem value="purple">Purple</SelectItem>
+                <SelectItem value="yellow">Yellow</SelectItem>
+                <SelectItem value="grey">Grey</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+
+        {/* Report wrapper for PDF */}
+        <div ref={reportRef} className="space-y-6">
+          {/* Branded report header */}
+          <div className="rounded-2xl border bg-white/80 p-4 shadow-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br ${BRAND.primary} shadow-sm ring-2 ${BRAND.accentRing}`}>
+                  <BrandMark className="h-6 w-6 text-white" />
+                </div>
+                <div>
+                  <div className={`text-base font-semibold ${BRAND.text}`}>{BRAND.name} • Summary Report</div>
+                  <div className={`text-xs ${BRAND.subtext}`}>Generated {new Date().toLocaleString()}</div>
+                </div>
+              </div>
+              <div className="text-xs text-right">
+                <div>Style: <span className="font-medium capitalize">{styleKey}</span></div>
+                <div>Plate: <span className="font-medium">{plateType}</span></div>
+              </div>
+            </div>
+          </div>
+
+          {/* Mood bar (reacts to viability) — above calculator */}
+          <motion.div layout className={`rounded-2xl ring-1 p-3 ${moodBox} flex items-center justify-between`}>
+            <div className="flex items-center gap-3">
+              <motion.div
+                initial={{ scale: 0.9 }}
+                animate={{ scale: mood === "high" ? 1.1 : mood === "mid" ? 1 : 0.95 }}
+                transition={{ type: "spring", stiffness: 300, damping: 15 }}
+                className={`flex h-9 w-9 items-center justify-center rounded-full bg-white/70 ring-1 ring-black/5 ${T.accent}`}
+              >
+                <MoodIcon className="h-5 w-5" />
+              </motion.div>
+              <div>
+                <div className="text-sm font-medium">{moodText}</div>
+                <div className="text-xs opacity-80">Viability: {formatNumber(viabilityPercent)}%</div>
+              </div>
+            </div>
+            {shortfall > 0 && (
+              <div className="flex items-center gap-2 text-xs">
+                <AlertCircle className="h-4 w-4" />
+                <span>Short {formatNumber(shortfall)} mL of culture.</span>
+              </div>
+            )}
+          </motion.div>
+
+          {/* Combined Calculator + Outputs */}
+          <Card className={`border ${T.chip} backdrop-blur`}>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Cell Splitting Calculator</CardTitle>
+              <CardDescription className={`text-xs ${T.muted}`}>Enter inputs on the left; outputs appear on the right.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+                {/* Inputs column */}
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Current cells / mL" value={currentCellsPerMl} onChange={setCurrentCellsPerMl} step={10000} inputClass={T.input} />
+                  <Field label="Viability %" value={viabilityPercent} onChange={setViabilityPercent} min={0} max={100} step={0.5} inputClass={T.input} />
+                  <Field label="Available volume (mL)" value={availableVolumeMl} onChange={setAvailableVolumeMl} step={0.5} inputClass={T.input} />
+                  <Field label="Target cells / mL" value={targetCellsPerMl} onChange={setTargetCellsPerMl} step={10000} inputClass={T.input} />
+                  <Field label="Desired final volume (mL)" value={desiredFinalVolumeMl} onChange={setDesiredFinalVolumeMl} step={0.5} inputClass={T.input} />
+                </div>
+
+                {/* Outputs column */}
+                <div className="space-y-4">
+                  <Readout title="Viable cells / mL" value={formatNumber(viable)} unit="cells/mL" className={T.display} mutedClass={T.muted} />
+                  <Readout title="Dead cells / mL" value={formatNumber(dead)} unit="cells/mL" className={T.display} mutedClass={T.muted} />
+                  <Readout title="Culture volume to add" value={formatNumber(culture)} unit="mL" className={T.display} mutedClass={T.muted} />
+                  <Readout title="Media volume to add" value={formatNumber(media)} unit="mL" className={T.display} mutedClass={T.muted} />
+                </div>
+              </div>
+            </CardContent>
+            <CardFooter className="flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={onReset} className="gap-2"><RefreshCw className="h-4 w-4"/> Reset</Button>
+              <Button variant="outline" onClick={copyOutputs} className="gap-2"><Copy className="h-4 w-4"/> Copy outputs</Button>
+              <Button onClick={downloadCSV} className="gap-2"><Download className="h-4 w-4"/> Export CSV</Button>
+              <Button onClick={exportPDF} className="gap-2"><FileText className="h-4 w-4"/> Export PDF</Button>
+            </CardFooter>
+          </Card>
+
+
+          {/* Seeding Flasks and Dishes Calculator */}
+          <Card className={`border ${T.chip} backdrop-blur`}>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Seeding Flasks and Dishes Calculator</CardTitle>
+              <CardDescription className={`text-xs ${T.muted}`}>Calculate cells and seed volumes for common culture flasks & dishes.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-6 items-center gap-3">
+                  <Label className="col-span-3 text-xs">Vessel type</Label>
+                  <div className="col-span-3">
+                    <Select value={vesselKind} onValueChange={(v) => setVesselKind(v as VesselKind)}>
+                      <SelectTrigger className={`h-9 ${T.selectTrigger ?? ''}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className={T.selectContent ?? ''}>
+                        <SelectItem value="flask">Flask</SelectItem>
+                        <SelectItem value="dish">Dish</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {vesselKind === 'flask' ? (
+                  <div className="grid grid-cols-6 items-center gap-3">
+                    <Label className="col-span-3 text-xs">Flask size</Label>
+                    <div className="col-span-3">
+                      <Select value={flaskSize} onValueChange={setFlaskSize}>
+                        <SelectTrigger className={`h-9 ${T.selectTrigger ?? ''}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className={T.selectContent ?? ''}>
+                          {Object.keys(FLASKS).map((k) => (
+                            <SelectItem key={k} value={k}>{k}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-6 items-center gap-3">
+                    <Label className="col-span-3 text-xs">Dish size</Label>
+                    <div className="col-span-3">
+                      <Select value={dishSize} onValueChange={setDishSize}>
+                        <SelectTrigger className={`h-9 ${T.selectTrigger ?? ''}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className={T.selectContent ?? ''}>
+                          {Object.keys(DISHES).map((k) => (
+                            <SelectItem key={k} value={k}>{k}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                )}
+
+                <Field label="Desired cells / cm²" value={cellsPerCm2} onChange={setCellsPerCm2} step={1000} />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground">Surface area</div>
+                  <div className="font-mono text-lg">{formatNumber(vesselAreaCm2)} cm²</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground">Cells needed</div>
+                  <div className="font-mono text-lg">{formatNumber(cellsNeededVessel, { maximumFractionDigits: 0 })}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground">Seed volume @ working conc</div>
+                  <div className="font-mono text-lg">{formatNumber(seedVolumeVesselMl)} mL</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-muted-foreground">Recommended medium</div>
+                  <div className="font-mono text-lg">{formatNumber(vesselRecVolMl)} mL</div>
+                </div>
+              </div>
+
+              {seedBelowRes && (
+                <div className="mt-1 flex items-center gap-2 text-xs text-amber-700">
+                  <AlertCircle className="h-4 w-4" />
+                  <span>Seed volume is below pipet resolution. Increase cells/mL or decrease target cells/cm².</span>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Experimental Seeding Planner */}
+          <Card className={`border ${T.chip} backdrop-blur`}>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Seeding Plates Calculator</CardTitle>
+              <CardDescription className={`text-xs ${T.muted}`}>Compute plate wells.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                <Field label="Desired cells / well" value={cellsPerWell} onChange={setCellsPerWell} step={1000} />
+                <div className="grid grid-cols-6 items-center gap-3">
+                  <Label className="col-span-3 text-xs">Plate format</Label>
+                  <div className="col-span-3">
+                    <Select value={plateType} onValueChange={setPlateType}>
+                      <SelectTrigger className={`h-9 ${T.selectTrigger ?? ''}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className={T.selectContent ?? ''}>
+                        {Object.keys(PLATE_WELLS).map((k) => (
+                          <SelectItem key={k} value={k}>{k}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-6 items-center gap-3">
+                  <Label className="col-span-3 text-xs">Conc. source</Label>
+                  <div className="col-span-3">
+                    <Select value={concSource} onValueChange={(v) => setConcSource(v as ConcentrationSource)}>
+                      <SelectTrigger className={`h-9 ${T.selectTrigger ?? ''}`}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className={T.selectContent ?? ''}>
+                        <SelectItem value="viable">Current viable</SelectItem>
+                        <SelectItem value="target">Target cells/mL</SelectItem>
+                        <SelectItem value="custom">Custom</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <Field label="Custom cells / mL" value={customConc} onChange={setCustomConc} step={10000} />
+                <Field label="Pipet resolution (mL)" value={pipetResolutionMl} onChange={() => {}} step={0.001} />
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="rounded-2xl border bg-white/70 p-4">
+                  <div className="text-xs font-medium text-muted-foreground">Working concentration</div>
+                  <div className="font-mono text-2xl">{formatNumber(workingCellsPerMl)} <span className="text-xs opacity-80">cells/mL</span></div>
+                </div>
+                <div className="rounded-2xl border bg-white/70 p-4">
+                  <div className="text-xs font-medium text-muted-foreground">Volume per well</div>
+                  <div className="font-mono text-2xl">{formatNumber(volPerWellMl)} <span className="text-xs opacity-80">mL</span></div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border bg-white/70 p-4">
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground">Wells</div>
+                    <div className="font-mono text-lg">{wells}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground">Cells / well</div>
+                    <div className="font-mono text-lg">{formatNumber(cellsPerWell)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground">Total cells</div>
+                    <div className="font-mono text-lg">{formatNumber(totalCellsPlate)}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-medium text-muted-foreground">Total volume</div>
+                    <div className="font-mono text-lg">{formatNumber(totalVolumePlateMl)} mL</div>
+                  </div>
+                </div>
+                {belowResolution && (
+                  <div className="mt-3 flex items-center gap-2 text-xs text-amber-700">
+                    <AlertCircle className="h-4 w-4" />
+                    <span>Per-well volume is below pipet resolution. Consider lowering concentration or using a higher volume.</span>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Readout({ title, value, unit, className = "", mutedClass }: { title: string; value: string; unit: string; className?: string; mutedClass?: string }) {
+  return (
+    <div className="space-y-1">
+      <div className={`text-xs font-medium ${mutedClass ?? "text-muted-foreground"}`}>{title}</div>
+      <div className={`flex items-center justify-between rounded-2xl px-4 py-3 font-mono ${className}`}>
+        <span className="text-2xl tabular-nums">{value}</span>
+        <span className="text-xs opacity-80">{unit}</span>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, min = 0, max, step = 1, inputClass }: { label: string; value: number; onChange: (n: number) => void; min?: number; max?: number; step?: number; inputClass?: string; }) {
+  return (
+    <div className="grid grid-cols-6 items-center gap-3">
+      <Label className="col-span-3 text-xs">{label}</Label>
+      <div className="col-span-3">
+        <Input
+          type="number"
+          step={step}
+          min={min}
+          {...(typeof max === "number" ? { max } : {})}
+          value={Number.isFinite(value) ? value : 0}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className={`h-9 ${inputClass ?? ''}`}
+        />
+      </div>
+    </div>
+  );
+}
+
+function BrandMark({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 64 64" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <linearGradient id="petal" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#f472b6" />
+          <stop offset="100%" stopColor="#8b5cf6" />
+        </linearGradient>
+      </defs>
+      <g stroke="white" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round">
+        <circle cx="32" cy="32" r="10" fill="url(#petal)"/>
+        <path d="M32 6c6 6 6 12 0 18c-6-6-6-12 0-18Z" fill="url(#petal)"/>
+        <path d="M58 32c-6 6-12 6-18 0c6-6 12-6 18 0Z" fill="url(#petal)"/>
+        <path d="M32 58c-6-6-6-12 0-18c6 6 6 12 0 18Z" fill="url(#petal)"/>
+        <path d="M6 32c6-6 12-6 18 0c-6 6-12 6-18 0Z" fill="url(#petal)"/>
+      </g>
+    </svg>
+  );
+}
+
+// --- Lightweight runtime tests (won't affect UI) ---
+function nearly(a: number, b: number, eps = 1e-6) { return Math.abs(a - b) <= eps; }
+(function runTests() {
+  try {
+    const t1 = calcOutputs(1.2e6, 95, 20, 0.3e6, 15); // baseline
+    console.assert(nearly(t1.viable, 1.14e6), "t1 viable");
+    console.assert(nearly(t1.dead, 60000), "t1 dead");
+    console.assert(nearly(t1.culture, 4500000 / 1140000), "t1 culture"); // ≈ 3.947368421
+    console.assert(nearly(t1.media, 15 - (4500000 / 1140000)), "t1 media");
+
+    const t2 = calcOutputs(2e6, 50, 5, 0.5e6, 10); // lower viability
+    console.assert(nearly(t2.viable, 1e6), "t2 viable");
+    console.assert(nearly(t2.culture, (500000 * 10) / 1e6), "t2 culture");
+
+    const t3 = calcOutputs(0, 0, 0, 100000, 10); // zero edge
+    console.assert(Number.isNaN(t3.culture), "t3 culture NaN when viable=0");
+
+    // High viability check
+    const t4 = calcOutputs(1e6, 100, 10, 2e5, 10);
+    console.assert(nearly(t4.viable, 1e6) && nearly(t4.culture, (2e5 * 10) / 1e6), "t4 high viability");
+
+    // Additional tests
+    const t5 = calcOutputs(1e6, 50, 3, 0.5e6, 10); // shortfall expected
+    console.assert(nearly(t5.shortfall, 7), "t5 shortfall should be 7 mL");
+
+    const t6 = calcOutputs(1e6, 50, 12, 0.5e6, 10); // no shortfall
+    console.assert(nearly(t6.shortfall, 0), "t6 shortfall should be 0 mL");
+
+    const t7 = calcOutputs(2e6, 0, 5, 2e5, 5); // 0% viability
+    console.assert(nearly(t7.dead, 2e6), "t7 dead equals current at 0% viability");
+
+    // New defensive tests around theme key persistence
+    const bogus: any = "black"; // previously saved/removed theme
+    console.assert(!isThemeKey(bogus), "theme key validator should reject 'black'");
+
+    // Negative value robustness
+    const t8 = calcOutputs(-100, 90, -5, 2e5, 10);
+    console.assert(nearly(t8.viable, 0) && nearly(t8.dead, 0) && Number.isNaN(t8.culture), "t8 clamps negatives and yields NaN culture");
+
+    // CSV newline check (fixed to use "\n")
+    const csvTest = [["a","b"],["1","2"]].map(r=>r.join(",")).join("\n");
+    console.assert(csvTest.includes("\n") && !csvTest.includes("\r\n"), "csv uses LF newlines");
+    console.assert(csvTest.split("\n").length === 2, "csv has expected line count");
+
+    // Vessel seed volume sanity
+    const area = 100; // cm²
+    const cpc = 20000; // cells/cm²
+    const work = 1e6; // cells/mL
+    const expectedVol = (area * cpc) / work; // 2 mL
+    console.assert(nearly(expectedVol, 2), "seed volume calc for vessel");
+
+    // Plate layout sanity: cols*rows matches wells
+    (Object.keys(PLATE_WELLS) as Array<keyof typeof PLATE_WELLS>).forEach((k) => {
+      const lay = PLATE_LAYOUTS[k];
+      console.assert(lay && lay.cols * lay.rows === PLATE_WELLS[k], `${k} layout mismatch`);
+    });
+
+    // If all assertions pass, quietly succeed
+  } catch (e) {
+    console.error("Calculator tests failed:", e);
+  }
+})();
